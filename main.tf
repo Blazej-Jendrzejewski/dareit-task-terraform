@@ -27,5 +27,6 @@ resource "google_compute_instance" "dareit-vm-ci" {
 resource "google_storage_bucket" "my_new_bucket" {
   name = "my-new-bucket"
   location = "us-central1"
+  force_destroy = true
 }
 

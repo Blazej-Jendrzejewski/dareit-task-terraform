@@ -1,7 +1,7 @@
-resource "google_compute_instance" "dareit-vm-ci" {
-  name         = "dareit-vm-tf-ci"
-  machine_type = "e2-medium"
-  zone         = "us-central1-a"
+resource "google_storage_bucket" "blazej_new_bucket" {
+  name = "blazej-new-bucket"
+  location = "US"
+}
 
   tags = ["dareit"]
 

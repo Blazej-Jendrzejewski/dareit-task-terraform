@@ -26,6 +26,6 @@ resource "google_compute_instance" "dareit-vm-ci" {
 
 resource "google_storage_bucket" "blazej_new_bucket" {
   name = "blazej-new-bucket"
-  location = "US"
+  location = "us-central1"
 }
 

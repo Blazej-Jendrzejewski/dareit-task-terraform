@@ -5,70 +5,63 @@ on:
     branches:
       - main
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+env:
+  GCP_PROJECT_ID: axial-camp-377809
 
+jobs:
+  build:
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
 
-    - name: Login to Google Container Registry
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run tests
+      run: python -m unittest discover
+
+    - name: Build Docker image
+      run: docker build -t myapp:latest .
+
+    - name: Log in to Docker Hub
       uses: docker/login-action@v1
       with:
-        registry: gcr.io
-        username: _json_key
-        password: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-    - name: Install Terraform
+    - name: Push Docker image
       run: |
-        curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-        sudo apt-get update && sudo apt-get install terraform
-        echo "TERRAFORM_PATH=$(which terraform)" >> $GITHUB_ENV
+        docker tag myapp:latest ${{ secrets.DOCKERHUB_USERNAME }}/myapp:latest
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/myapp:latest
 
-    - name: Terraform init
-      working-directory: terraform
-      run: terraform init
-
-    - name: Terraform plan
-      working-directory: terraform
-      run: terraform plan
-      env:
-        TF_VAR_gcp_credentials: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
-        TF_VAR_gcp_project_id: axial-camp-377809
-
-    - name: Terraform apply
-      working-directory: terraform
-      if: github.ref == 'refs/heads/main'
-      run: terraform apply -auto-approve
-      env:
-        TF_VAR_gcp_credentials: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
-        TF_VAR_gcp_project_id: axial-camp-377809
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v2
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v1
       with:
-        context: .
-        push: true
-        tags: gcr.io/axial-camp-377809/myapp:${{ github.sha }}
+        terraform_version: 1.0.11
 
-    - name: Deploy to GKE
-      if: github.ref == 'refs/heads/main'
+    - name: Run terraform plan
       run: |
-        export GCP_PROJECT_ID="axial-camp-377809"
-        export GCP_ZONE="us-central1-c"
-        export GCP_CLUSTER_NAME="myapp-cluster"
-        export GCP_CONTAINER_NAME="myapp"
-        export GCP_REPOSITORY="gcr.io/$GCP_PROJECT_ID/myapp"
-
-        gcloud auth activate-service-account --key-file <(echo "${{ secrets.TF_GOOGLE_CREDENTIALS }}")
-        gcloud config set project $GCP_PROJECT_ID
-        gcloud config set compute/zone $GCP_ZONE
-        gcloud container clusters get-credentials $GCP_CLUSTER_NAME
-
-        envsubst < k8s-deployment.yaml.tmpl > k8s-deployment.yaml
-        kubectl apply -f k8s-deployment.yaml
+        echo 'terraform {
+          required_providers {
+            google = {
+              source = "hashicorp/google"
+              version = ">= 3.0"
+            }
+          }
+        }
+        provider "google" {
+          credentials = "${{ secrets.TF_GOOGLE_CREDENTIALS }}"
+          project     = "${{ env.GCP_PROJECT_ID }}"
+          region      = "us-central1"
+        }' > ./terraform/main.tf
+        cat ./terraform/main.tf
+        terraform init -input=false -backend=false
+        terraform plan -input=false -var "gcp_credentials=${{ secrets.TF_GOOGLE_CREDENTIALS }}" -var "gcp_project_id=${{ env.GCP_PROJECT_ID }}"

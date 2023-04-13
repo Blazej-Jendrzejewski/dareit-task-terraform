@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
 
 jobs:
   build-and-deploy:
@@ -13,7 +14,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Setup Docker
+    - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
 
     - name: Login to Google Container Registry
@@ -21,35 +22,48 @@ jobs:
       with:
         registry: gcr.io
         username: _json_key
-        password: ${{ secrets.GCR_JSON_KEY }}
+        password: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
+
+    - name: Install Terraform
+      run: |
+        curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+        sudo apt-get update && sudo apt-get install terraform
+        echo "TERRAFORM_PATH=$(which terraform)" >> $GITHUB_ENV
+
+    - name: Terraform init
+      working-directory: terraform
+      run: terraform init
+
+    - name: Terraform plan
+      working-directory: terraform
+      run: terraform plan
+
+    - name: Terraform apply
+      working-directory: terraform
+      if: github.ref == 'refs/heads/main'
+      run: terraform apply -auto-approve
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v2
       with:
         context: .
         push: true
-        tags: gcr.io/axial-camp-377809/dareit-challenge:${{ github.sha }}
-
-    - name: Setup Google Cloud SDK
-      uses: google-github-actions/setup-gcloud@v0.2.1
-      with:
-        project_id: axial-camp-377809
-        service_account_key: ${{ secrets.GCR_JSON_KEY }}
-
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v1
-      with:
-        terraform_version: 1.0.0
-
-    - name: Terraform Init and Apply
-      run: |
-        echo "gcp_credentials = \"${{ secrets.TF_GOOGLE_CREDENTIALS }}\"" > terraform.tfvars
-        echo "gcp_project_id = \"axial-camp-377809\"" >> terraform.tfvars
-        terraform init
-        terraform apply -auto-approve
+        tags: gcr.io/axial-camp-377809/myapp:${{ github.sha }}
 
     - name: Deploy to GKE
+      if: github.ref == 'refs/heads/main'
       run: |
-        gcloud container clusters get-credentials/dareit-challenge-cluster --zone us-central1-a
+        export GCP_PROJECT_ID="axial-camp-377809"
+        export GCP_ZONE="us-central1-c"
+        export GCP_CLUSTER_NAME="myapp-cluster"
+        export GCP_CONTAINER_NAME="myapp"
+        export GCP_REPOSITORY="gcr.io/$GCP_PROJECT_ID/myapp"
+
+        gcloud auth activate-service-account --key-file <(echo "${{ secrets.TF_GOOGLE_CREDENTIALS }}")
+        gcloud config set project $GCP_PROJECT_ID
+        gcloud config set compute/zone $GCP_ZONE
+        gcloud container clusters get-credentials $GCP_CLUSTER_NAME
+
+        envsubst < k8s-deployment.yaml.tmpl > k8s-deployment.yaml
         kubectl apply -f k8s-deployment.yaml
-        kubectl set image deployment/dareit-challenge/dareit-challenge=gcr.io/axial-camp-377809/dareit-challenge:${{ github.sha }}

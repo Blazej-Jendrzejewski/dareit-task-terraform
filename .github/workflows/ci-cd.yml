@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - dev
 
 jobs:
   build-and-deploy:
@@ -38,11 +37,17 @@ jobs:
     - name: Terraform plan
       working-directory: terraform
       run: terraform plan
+      env:
+        TF_VAR_gcp_credentials: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
+        TF_VAR_gcp_project_id: axial-camp-377809
 
     - name: Terraform apply
       working-directory: terraform
       if: github.ref == 'refs/heads/main'
       run: terraform apply -auto-approve
+      env:
+        TF_VAR_gcp_credentials: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
+        TF_VAR_gcp_project_id: axial-camp-377809
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v2

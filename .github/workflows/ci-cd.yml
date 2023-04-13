@@ -23,6 +23,13 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
 
+    # Install Docker
+    - name: Install Docker
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install docker.io
+
+    # Build Docker image
     - name: Build Docker image
       run: docker build -t myapp:latest .
 
@@ -30,25 +37,29 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v1
 
+    # Configure Google Cloud credentials
+    - name: Configure Google Cloud credentials
+      uses: GoogleCloudPlatform/github-actions/setup-gcloud@v0.3.0
+      with:
+        service_account_key: ${{ secrets.GOOGLE_CREDENTIALS }}
+        project_id: ${{ env.GCP_PROJECT_ID }}
 
     # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
     - name: Terraform Init
-      run: terraform init
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
+      run: terraform init terraform/
+    
+    # Validate the Terraform configuration syntax
+    - name: Terraform Validate
+      run: terraform validate terraform/
 
     # Run terraform fmt to check whether the formatting of the files is correct
-    - name: Terraform Format
-      run: terraform fmt -check || (echo "Ponizsze pliki nie sa poprawnie sformatowane:" && terraform fmt -check -list)
+    - name: Terraform Format Check
+      run: terraform fmt -check -diff terraform/
 
     # Run terraform plan
     - name: Terraform Plan
-      run: terraform plan
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
-
+      run: terraform plan -input=false -var gcp_credentials="${{ secrets.GOOGLE_CREDENTIALS }}" -var gcp_project_id="${{ env.GCP_PROJECT_ID }}" terraform/
+    
     # Run terraform apply
     - name: Terraform Apply
-      run: terraform apply -auto-approve
-      env:
-        GOOGLE_CREDENTIALS: ${{ secrets.TF_GOOGLE_CREDENTIALS }}
+      run: terraform apply -input=false -auto-approve -var gcp_credentials="${{ secrets.GOOGLE_CREDENTIALS }}" -var gcp_project_id="${{ env.GCP_PROJECT_ID }}" terraform/
